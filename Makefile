@@ -21,3 +21,6 @@ test:
 
 clean:
 	rm -f $(TARGET)
+
+install:
+	install -D $(TARGET) /usr/libexec/kata-containers/$(TARGET)

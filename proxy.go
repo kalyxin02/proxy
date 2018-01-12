@@ -12,6 +12,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"log/syslog"
 	"net"
 	"net/url"
 	"os"
@@ -19,6 +20,7 @@ import (
 
 	"github.com/hashicorp/yamux"
 	"github.com/sirupsen/logrus"
+	lSyslog "github.com/sirupsen/logrus/hooks/syslog"
 )
 
 const proxyName = "kata-proxy"
@@ -26,10 +28,14 @@ const proxyName = "kata-proxy"
 // version is the proxy version. This variable is populated at build time.
 var version = "unknown"
 
-var proxyLog = logrus.WithFields(logrus.Fields{
-	"name": proxyName,
-	"pid":  os.Getpid(),
-})
+var proxyLog = logrus.New()
+
+//func init() {
+//	proxyLog = proxyLog.WithFields(logrus.Fields{
+//		"name": proxyName,
+//		"pid":  os.Getpid(),
+//	})
+//}
 
 func serve(servConn io.ReadWriteCloser, proto, addr string, results chan error) error {
 	session, err := yamux.Client(servConn, nil)
@@ -129,19 +135,44 @@ func main() {
 	flag.StringVar(&channel, "mux-socket", "", "unix socket to multiplex on")
 	flag.StringVar(&proxyAddr, "listen-socket", "", "unix socket to listen on")
 
-	flag.StringVar(&logLevel, "log", "warn",
+	flag.StringVar(&logLevel, "log", "debug",
 		"log messages above specified level: debug, warn, error, fatal or panic")
 
 	flag.Parse()
 
+	if err := setupLogger(logLevel); err != nil {
+		proxyLog.Fatal(err)
+	}
+
+	hook, err := lSyslog.NewSyslogHook("", "", syslog.LOG_DEBUG, "")
+	if err == nil {
+		proxyLog.Hooks.Add(hook)
+	}
+
+/*
+	// Connect console.sock for logging
+	consoleSock := "/run/virtcontainers/pods/console.sock"
+	conn, err := net.Dial("unix", consoleSock)
+	if err != nil {
+		proxyLog.Infof("%v\n", err)
+		os.Exit(1)
+	}
+
+	go func() {
+		buf := make([]byte, 1024)
+		for {
+			if _, err := conn.Read(buf); err != nil {
+				return
+			}
+
+			proxyLog.Infof("%s\n", string(buf))
+		}
+	}()
+*/
+
 	if showVersion {
 		fmt.Printf("%v version %v\n", proxyName, version)
 		os.Exit(0)
-	}
-
-	err := setupLogger(logLevel)
-	if err != nil {
-		proxyLog.Fatal(err)
 	}
 
 	muxAddr, err := unixAddr(channel)
